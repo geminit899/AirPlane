@@ -22,10 +22,10 @@ public class AnalyzePage extends Thread {
     private Map<String, String> cityName;
     private List<Tuple2<String, String>> lines;
     private final String insertFormat = "INSERT INTO XCAirline (airlines, flight, takeoffTime, takeoffCity, takeoffAirport, " +
-            "landingTime, landingCity, landingAirport, price) VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', d%)";
+            "landingTime, landingCity, landingAirport, price, date) VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', %d, '%s')";
     private static final DateFormat FORMAT = new SimpleDateFormat("yyyy-MM-dd");
 
-    private final long perPageTime = 5000;
+    private final long perPageTime = 10000;
 
     public AnalyzePage(String fromDate, String toDate, Map<String, String> cityName, List<Tuple2<String, String>> lines) {
         this.fromDate = new Date();
@@ -41,8 +41,8 @@ public class AnalyzePage extends Thread {
     }
 
     public void run() {
-        MysqlConnect.conn("localhost", "AirPlane", "root", "hack");
         for (int i = 0; i < lines.size(); i++) {
+            MysqlConnect.conn("localhost", "AirPlane", "root", "hack");
             String fromCity = lines.get(i)._1();
             String toCity = lines.get(i)._2();
 
@@ -53,20 +53,56 @@ public class AnalyzePage extends Thread {
                 if (date.after(toDate)) {
                     break;
                 } else {
-                    Document document = getPage(fromCity, toCity, FORMAT.format(date));
-                    dealOnePage(document, fromCity, toCity);
+                    dealOnePage(fromCity, toCity, FORMAT.format(date));
                     cal.add(Calendar.DATE, 1);
                 }
             }
+            MysqlConnect.deconn();
         }
-        MysqlConnect.deconn();
     }
 
     /**
-     *  document : 页面内容
+     *  fromCity、toCity：城市简称
+     *  date : 2019-10-01
      */
-    private void dealOnePage(Document document, String fromCity, String toCity) {
-        Elements allPlanes = document.getElementsByClass("search_table_header");
+    private void dealOnePage(String fromCity, String toCity, String date) {
+        Elements allPlanes = null;
+        String url = "https://flights.ctrip.com/itinerary/oneway/" + fromCity + "-" + toCity + "?date=" + date;
+
+        System.setProperty("webdriver.chrome.driver", AirPlane.CHROME_DRIVER);
+        WebDriver webDriver = new ChromeDriver();
+
+        for (int i = 0; i < 10; i++) {
+            webDriver.get(url); //写入你要抓取的网址
+
+            try {
+                Thread.sleep(perPageTime);
+            } catch (Exception exception) {
+                try {
+                    Thread.sleep(perPageTime);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+
+            String source = webDriver.getPageSource();
+            Document document = Jsoup.parse(source);
+            allPlanes = document.select("div.search_table_header");
+
+            if (allPlanes.size() > 0) {
+                break;
+            } else if (allPlanes.size() == 0) {
+                allPlanes = document.select("div.search_transfer_header");
+                if (allPlanes.size() > 0) {
+                    break;
+                }
+                if (source.contains("class=\"base_alert11\"") && source.contains("很抱歉，您搜索的")) {
+                    break;
+                }
+            }
+        }
+
+        webDriver.close();//必须关闭资源
         allPlanes.stream().forEach(new Consumer<Element>() {
             @Override
             public void accept(Element plane) {
@@ -88,39 +124,15 @@ public class AnalyzePage extends Thread {
                 String price = inbPrice.select("span.base_price02").first().text();
                 price = price.substring(1, price.length());
 
-                String sql = String.format(insertFormat, airlines, flight, takeoffTime, cityName.get(fromCity), takeoffAirport,
-                        landingTime, cityName.get(toCity), landingAirport, Integer.parseInt(price));
+                String fromCityName = cityName.get(fromCity);
+                String toCityName = cityName.get(toCity);
+                int priceInt = Integer.parseInt(price);
+
+                String sql = String.format(insertFormat, airlines, flight, takeoffTime, fromCityName, takeoffAirport,
+                        landingTime, toCityName, landingAirport, priceInt, date);
 
                 MysqlConnect.executeIDUSQL(sql);
             }
         });
-    }
-
-    /**
-     *  fromCity、toCity：城市简称
-     *  date : 2019-10-01
-     */
-    private Document getPage(String fromCity, String toCity, String date) {
-        String url = "https://flights.ctrip.com/itinerary/oneway/" + fromCity + "-" + toCity + "?date=" + date;
-
-        System.setProperty("webdriver.chrome.driver", AirPlane.CHROME_DRIVER);
-        WebDriver webDriver = new ChromeDriver();
-        webDriver.get(url); //写入你要抓取的网址
-
-        try {
-            Thread.sleep(perPageTime);
-        } catch (Exception exception) {
-            try {
-                Thread.sleep(perPageTime);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
-
-        Document document = Jsoup.parse(webDriver.getPageSource());
-        webDriver.close();//必须关闭资源
-
-
-        return document;
     }
 }

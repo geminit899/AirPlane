@@ -11,11 +11,8 @@ import java.util.Map;
 import java.util.Set;
 
 public class AirPlane {
-    private static final int THREAD_NUM = 8;
+    private static final int THREAD_NUM = 4;
     public static final String CHROME_DRIVER = "/Applications/Google Chrome.app/Contents/MacOS/chromedriver";
-
-    private static String FROM_DATE = "2019-09-30";
-    private static String TO_DATE = "2019-10-10";
 
     private static Map<String, String> getCityName() {
         Map<String, String> cityName = new HashMap<>();
@@ -40,13 +37,47 @@ public class AirPlane {
         Map<String, String> cityName = getCityName();
         Set<String> citySet = cityName.keySet();
 
-        List<Tuple2<String, String>> lines = new ArrayList<>();
+        int perLine = (2 * (citySet.size() - 1)) / THREAD_NUM;
+        List<Tuple2<String, String>> lines;
+        int count;
+        String FROM_DATE;
+        String TO_DATE;
 
-        int perLine = ((citySet.size() - 1) * (citySet.size() - 1)) / THREAD_NUM;
-        int count = perLine;
-
-        for (String fromCity : citySet) {
+        lines = new ArrayList<>();
+        count = perLine;
+        FROM_DATE = "2019-09-30";
+        TO_DATE = "2019-10-03";
+        String[] fromCities = {"CTU", "CKG"};
+        for (String fromCity : fromCities) {
             for (String toCity : citySet) {
+                if (fromCity == toCity) {
+                    continue;
+                }
+
+                lines.add(new Tuple2<>(fromCity, toCity));
+                count--;
+
+                if (count == 0) {
+                    Thread thread = new AnalyzePage(FROM_DATE, TO_DATE, cityName, lines);
+                    thread.start();
+                    lines = new ArrayList<>();
+                    count = perLine;
+                }
+            }
+        }
+        if (lines.size() > 0) {
+            Thread thread = new AnalyzePage(FROM_DATE, TO_DATE, cityName, lines);
+            thread.start();
+        }
+
+
+        lines = new ArrayList<>();
+        count = perLine;
+        FROM_DATE = "2019-10-05";
+        TO_DATE = "2019-10-07";
+        String[] toCities = {"CTU", "CKG"};
+        for (String fromCity : citySet) {
+            for (String toCity : toCities) {
                 if (fromCity == toCity) {
                     continue;
                 }
